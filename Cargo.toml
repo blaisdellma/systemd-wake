@@ -1,9 +1,13 @@
 [package]
 name = "systemd-wake"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Use systemd to wake up for future tasks"
+documentation = "https://docs.rs/systemd-wake"
+repository = "https://github.com/blaisdellma/systemd-wake"
+homepage = "https://github.com/blaisdellma/systemd-wake"
+keywords = ["systemd"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
