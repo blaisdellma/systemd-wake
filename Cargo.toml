@@ -2,6 +2,8 @@
 name = "systemd-wake"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Use systemd to wake up for future tasks"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
