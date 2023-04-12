@@ -213,14 +213,7 @@ pub fn deregister(timer_name: TimerName) -> Result<(),CommandError> {
     Ok(())
 }
 
-/// Returns registered command if it exists
-pub fn query_registration(timer_name: TimerName) -> Result<(Option<Command>,Option<NaiveDateTime>),CommandError> {
-    debug!("querying registration");
-    // look for:
-    // LoadState
-    // Description
-    // TimersCalendar
-
+fn extract_property(timer_name: TimerName, property: &str) -> Result<String,QueryError> {
     let unit_name = {
         let mut name = timer_name.to_string();
         name.push_str(".timer");
@@ -231,66 +224,88 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Option<Command>,Opti
     systemd_command
         .arg("--user")
         .arg("show")
-        .arg(unit_name);
+        .arg(unit_name)
+        .arg(format!("--property={}",property));
 
-    let output = run_command(systemd_command)?;
+    let output = run_command(systemd_command).map_err(|e| QueryError { kind: QueryErrorKind::Command(e) })?;
 
-    let mut load_state = None;
-    let mut desc = None;
-    let mut calendar = None;
-
-    let lines = output.stdout
-        .split(|c| c == &10) // \n
-        .filter(|bytes| bytes.len() != 0 )
-        .map(|bytes|  {
-            match String::from_utf8(bytes.to_vec()) {
-                Ok(string) => {
-                    match string.split_once(|c| c == '=') {
-                        Some((label,value)) => Ok((label.to_owned(),value.to_owned())),
-                        None => Err(()),
-                    }
-                },
-                Err(_) => Err(()),
-            }
-        });
-
-    for result in lines {
-        match result {
-            Ok((label,value)) if label == "LoadState" => load_state = Some(value),
-            Ok((label,value)) if label == "Description" => desc = Some(value),
-            Ok((label,value)) if label == "TimersCalendar" => calendar = Some(value),
-            _ => {},
-        }
-    }
-
-    match load_state {
-        Some(state) if state == "loaded" => {},
-        _ => return Ok((None,None)),
-    }
-
-    let command = match desc {
-        Some(d) => {
-            if let Some((_,hexcode)) = d.split_once(" ") {
-                Some(CommandConfig::decode(hexcode))
+    match String::from_utf8(output.stdout) {
+        Ok(string) => {
+            if let Some(value) = string.strip_prefix(&format!("{}=",property)) {
+                return Ok(value.trim_end().to_owned())
             } else {
-                None
+                return Err(QueryError { kind: QueryErrorKind::ParseError });
             }
         },
-        _ => None,
+        Err(_) => return Err(QueryError { kind: QueryErrorKind::ParseError }),
+    }
+}
+
+/// Returns registered command if it exists
+pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTime),QueryError> {
+    debug!("querying registration");
+    // look for:
+    // LoadState
+    // Description
+    // TimersCalendar
+
+    if extract_property(timer_name, "LoadState")? != "loaded" {
+        return Err(QueryError { kind: QueryErrorKind::NotLoaded });
+    }
+
+    let desc = extract_property(timer_name, "Description")?;
+    let command = if let Some(splits) = desc.split_once(" ") {
+        CommandConfig::decode(splits.1)
+    } else {
+        return Err(QueryError { kind: QueryErrorKind::ParseError });
     };
 
-    let datetime = match calendar {
-        Some(text) => {
-            let text = text
-                .split_once("OnCalendar=").unwrap().1
-                .split_once(" ;").unwrap().0;
-            Some(chrono::NaiveDateTime::parse_from_str(&text,"%Y-%m-%d %H:%M:%S").unwrap())
-        },
-        None => None,
+    let calendar = extract_property(timer_name, "TimersCalendar")?;
+    let datetime_str = calendar
+        .split_once("OnCalendar=").ok_or(QueryError { kind: QueryErrorKind::ParseError })?.1
+        .split_once(" ;").ok_or(QueryError { kind: QueryErrorKind::ParseError })?.0;
+
+    let datetime = match chrono::NaiveDateTime::parse_from_str(&datetime_str,"%Y-%m-%d %H:%M:%S") {
+        Ok(x) => x,
+        Err(_) => return Err(QueryError { kind: QueryErrorKind::ParseError }),
     };
 
     Ok((command,datetime))
 
+}
+
+/// Error struct for querying task registration
+#[derive(Debug)]
+pub struct QueryError {
+    /// The kind of error that occured
+    pub kind: QueryErrorKind,
+}
+
+#[derive(Debug)]
+/// Error kinds for [`QueryError`]
+pub enum QueryErrorKind {
+    /// Error sending command to systemd
+    Command(CommandError),
+    /// Provided unit name is not loaded
+    NotLoaded,
+    /// Error parsing systemd output
+    ParseError,
+}
+
+impl Display for QueryError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f,"failed to query task registration")
+    }
+}
+
+impl std::error::Error for QueryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            QueryErrorKind::Command(e) => Some(e),
+            QueryErrorKind::NotLoaded => None,
+            QueryErrorKind::ParseError => None,
+        }
+    }
 }
 
 /// Error struct for running a command. Wraps running with a non-success exit status as an error variant.
@@ -368,9 +383,7 @@ mod test {
         register(waketime,timer_name,command).unwrap();
 
         // check future beep
-        let (command, datetime) = query_registration(timer_name).unwrap();
-        command.unwrap();
-        datetime.unwrap();
+        let (_command, _datetime) = query_registration(timer_name).unwrap();
 
         // cancel future beep
         deregister(timer_name).unwrap();
