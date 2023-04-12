@@ -40,7 +40,7 @@
 
 /// Command serialization
 pub mod command;
-use command::CommandConfig;
+use command::{CommandConfig,CommandConfigError};
 
 use std::fmt::{Display,Formatter};
 use std::process::{Command,Output};
@@ -115,7 +115,7 @@ pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Comma
     let on_calendar = event_time.format("--on-calendar=%F %T").to_string();
     debug!("timer set for {}",on_calendar);
 
-    let encoded_command = CommandConfig::encode(command);
+    let encoded_command = CommandConfig::encode(command).unwrap();
 
     let mut systemd_command = Command::new("systemd-run");
     systemd_command
@@ -193,7 +193,7 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTim
 
     let desc = extract_property(timer_name, "Description")?;
     let command = if let Some(splits) = desc.split_once(" ") {
-        CommandConfig::decode(splits.1)
+        CommandConfig::decode(splits.1).map_err(|e| QueryError { kind: QueryErrorKind::DecodeError(e) })?
     } else {
         return Err(QueryError { kind: QueryErrorKind::ParseError });
     };
@@ -215,7 +215,7 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTim
 /// Error struct for querying task registration
 #[derive(Debug)]
 pub struct QueryError {
-    /// The kind of error that occured
+    /// The kind of error that occurred
     pub kind: QueryErrorKind,
 }
 
@@ -228,6 +228,8 @@ pub enum QueryErrorKind {
     NotLoaded,
     /// Error parsing systemd output
     ParseError,
+    /// Error decoding command
+    DecodeError(CommandConfigError),
 }
 
 impl Display for QueryError {
@@ -251,7 +253,7 @@ impl std::error::Error for QueryError {
 pub struct CommandError {
     /// The command that was run
     pub command: Command,
-    /// The kind of error that occured
+    /// The kind of error that occurred
     pub kind: CommandErrorKind,
 }
 
