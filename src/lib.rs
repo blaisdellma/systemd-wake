@@ -40,7 +40,7 @@ use std::fmt::{Display,Formatter};
 use std::path::PathBuf;
 use std::process::{Command,Output};
 
-use chrono::{Local,DateTime};
+use chrono::{Local,NaiveDateTime};
 use serde::{Serialize,Deserialize};
 #[allow(unused_imports)]
 use tracing::{info,debug,warn,error,trace,Level};
@@ -166,7 +166,7 @@ impl CommandConfig {
 }
 
 /// Calls systemd-run to register command to wake at specified time using provided name.
-pub fn register(event_time: DateTime<Local>, timer_name: TimerName, command: Command) -> Result<(),CommandError> {
+pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Command) -> Result<(),CommandError> {
     debug!("registering timer");
 
     let unit_name = format!("--unit={}",timer_name);
