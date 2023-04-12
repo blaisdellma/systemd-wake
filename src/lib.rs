@@ -17,7 +17,7 @@
 //! use systemd_wake::*;
 //!
 //! // one minute in the future
-//! let waketime = chrono::Local::now() + chrono::Duration::minutes(1);
+//! let waketime = chrono::Local::now().naive_local() + chrono::Duration::minutes(1);
 //!
 //! // schedule a short beep
 //! let mut command = std::process::Command::new("play");
@@ -28,6 +28,9 @@
 //!
 //! // register future beep
 //! systemd_wake::register(waketime,timer_name,command).unwrap();
+//!
+//! // check future beep
+//! systemd_wake::query_registration(timer_name).unwrap();
 //!
 //! // cancel future beep
 //! systemd_wake::deregister(timer_name).unwrap();
@@ -40,7 +43,7 @@ use std::fmt::{Display,Formatter};
 use std::path::PathBuf;
 use std::process::{Command,Output};
 
-use chrono::{Local,NaiveDateTime};
+use chrono::NaiveDateTime;
 use serde::{Serialize,Deserialize};
 #[allow(unused_imports)]
 use tracing::{info,debug,warn,error,trace,Level};
@@ -210,6 +213,86 @@ pub fn deregister(timer_name: TimerName) -> Result<(),CommandError> {
     Ok(())
 }
 
+/// Returns registered command if it exists
+pub fn query_registration(timer_name: TimerName) -> Result<(Option<Command>,Option<NaiveDateTime>),CommandError> {
+    debug!("querying registration");
+    // look for:
+    // LoadState
+    // Description
+    // TimersCalendar
+
+    let unit_name = {
+        let mut name = timer_name.to_string();
+        name.push_str(".timer");
+        name
+    };
+
+    let mut systemd_command = Command::new("systemctl");
+    systemd_command
+        .arg("--user")
+        .arg("show")
+        .arg(unit_name);
+
+    let output = run_command(systemd_command)?;
+
+    let mut load_state = None;
+    let mut desc = None;
+    let mut calendar = None;
+
+    let lines = output.stdout
+        .split(|c| c == &10) // \n
+        .filter(|bytes| bytes.len() != 0 )
+        .map(|bytes|  {
+            match String::from_utf8(bytes.to_vec()) {
+                Ok(string) => {
+                    match string.split_once(|c| c == '=') {
+                        Some((label,value)) => Ok((label.to_owned(),value.to_owned())),
+                        None => Err(()),
+                    }
+                },
+                Err(_) => Err(()),
+            }
+        });
+
+    for result in lines {
+        match result {
+            Ok((label,value)) if label == "LoadState" => load_state = Some(value),
+            Ok((label,value)) if label == "Description" => desc = Some(value),
+            Ok((label,value)) if label == "TimersCalendar" => calendar = Some(value),
+            _ => {},
+        }
+    }
+
+    match load_state {
+        Some(state) if state == "loaded" => {},
+        _ => return Ok((None,None)),
+    }
+
+    let command = match desc {
+        Some(d) => {
+            if let Some((_,hexcode)) = d.split_once(" ") {
+                Some(CommandConfig::decode(hexcode))
+            } else {
+                None
+            }
+        },
+        _ => None,
+    };
+
+    let datetime = match calendar {
+        Some(text) => {
+            let text = text
+                .split_once("OnCalendar=").unwrap().1
+                .split_once(" ;").unwrap().0;
+            Some(chrono::NaiveDateTime::parse_from_str(&text,"%Y-%m-%d %H:%M:%S").unwrap())
+        },
+        None => None,
+    };
+
+    Ok((command,datetime))
+
+}
+
 /// Error struct for running a command. Wraps running with a non-success exit status as an error variant.
 #[derive(Debug)]
 pub struct CommandError {
@@ -283,6 +366,11 @@ mod test {
 
         // register future beep
         register(waketime,timer_name,command).unwrap();
+
+        // check future beep
+        let (command, datetime) = query_registration(timer_name).unwrap();
+        command.unwrap();
+        datetime.unwrap();
 
         // cancel future beep
         deregister(timer_name).unwrap();
