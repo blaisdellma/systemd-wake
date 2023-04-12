@@ -185,7 +185,8 @@ pub fn register(event_time: DateTime<Local>, timer_name: TimerName, command: Com
         .arg(encoded_command);
 
     debug!("running timer command: {:?}",systemd_command);
-    run_command(systemd_command)
+    run_command(systemd_command)?;
+    Ok(())
 }
 
 /// Calls systemctl to deregister specified timer.
@@ -205,7 +206,8 @@ pub fn deregister(timer_name: TimerName) -> Result<(),CommandError> {
         .arg(unit_name);
 
     debug!("running stop timer command: {:?}",systemd_command);
-    run_command(systemd_command)
+    run_command(systemd_command)?;
+    Ok(())
 }
 
 /// Error struct for running a command. Wraps running with a non-success exit status as an error variant.
@@ -242,11 +244,11 @@ impl std::error::Error for CommandError {
 }
 
 /// Helper function for running commands.
-pub fn run_command(mut command: Command) -> Result<(),CommandError> {
+pub fn run_command(mut command: Command) -> Result<Output,CommandError> {
     match command.output() {
         Ok(output) => {
             if output.status.success() {
-                Ok(())
+                Ok(output)
             } else {
                 Err(CommandError {
                     command,
