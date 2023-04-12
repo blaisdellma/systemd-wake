@@ -264,3 +264,27 @@ pub fn run_command(mut command: Command) -> Result<Output,CommandError> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_beep() {
+        // one minute in the future
+        let waketime = chrono::Local::now().naive_local() + chrono::Duration::minutes(1);
+
+        // schedule a short beep
+        let mut command = std::process::Command::new("play");
+        command.args(vec!["-q","-n","synth","0.1","sin","880"]);
+
+        // create unit handle
+        let timer_name = TimerName::new("my-special-unit-name-123").unwrap();
+
+        // register future beep
+        register(waketime,timer_name,command).unwrap();
+
+        // cancel future beep
+        deregister(timer_name).unwrap();
+    }
+}
