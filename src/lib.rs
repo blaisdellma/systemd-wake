@@ -46,6 +46,7 @@ use std::fmt::{Display,Formatter};
 use std::process::{Command,Output};
 
 use chrono::NaiveDateTime;
+use thiserror::Error;
 #[allow(unused_imports)]
 use tracing::{info,debug,warn,error,trace,Level};
 
@@ -60,10 +61,10 @@ impl<'a> TimerName<'a> {
     /// non-whitespace ASCII.
     pub fn new(name: &'a str) -> Result<Self,TimerNameError> {
         if !name.is_ascii() {
-            return Err(TimerNameError { kind: TimerNameErrorKind::NotAscii });
+            return Err(TimerNameError::NotAscii);
         }
         if name.contains(char::is_whitespace) {
-            return Err(TimerNameError { kind: TimerNameErrorKind::ContainsWhitespace });
+            return Err(TimerNameError::ContainsWhitespace);
         }
         Ok(Self { name })
     }
@@ -82,29 +83,14 @@ impl Display for TimerName<'_> {
 }
 
 /// Error struct for creating TimerName.
-#[derive(Debug)]
-pub struct TimerNameError {
-    kind: TimerNameErrorKind,
-}
-
-/// Error kinds for [`TimerNameError`].
-#[derive(Debug)]
+#[derive(Error,Debug)]
 #[allow(missing_docs)]
-pub enum TimerNameErrorKind {
+pub enum TimerNameError {
+    #[error("TimerName must be ASCII")]
     NotAscii,
+    #[error("TimerName cannot conatin whitespace")]
     ContainsWhitespace,
 }
-
-impl Display for TimerNameError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self.kind {
-            TimerNameErrorKind::NotAscii => write!(f,"TimerName must be ASCII"),
-            TimerNameErrorKind::ContainsWhitespace => write!(f,"TimerName cannot contain whitespace"),
-        }
-    }
-}
-
-impl std::error::Error for TimerNameError {}
 
 /// Calls systemd-run to register command to wake at specified time using provided name.
 pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Command) -> Result<(),CommandError> {
@@ -165,17 +151,17 @@ fn extract_property(timer_name: TimerName, property: &str) -> Result<String,Quer
         .arg(unit_name)
         .arg(format!("--property={}",property));
 
-    let output = run_command(systemd_command).map_err(|e| QueryError { kind: QueryErrorKind::Command(e) })?;
+    let output = run_command(systemd_command)?;
 
     match String::from_utf8(output.stdout) {
         Ok(string) => {
             if let Some(value) = string.strip_prefix(&format!("{}=",property)) {
                 return Ok(value.trim_end().to_owned())
             } else {
-                return Err(QueryError { kind: QueryErrorKind::ParseError });
+                return Err(QueryError::ParseError);
             }
         },
-        Err(_) => return Err(QueryError { kind: QueryErrorKind::ParseError }),
+        Err(_) => return Err(QueryError::ParseError),
     }
 }
 
@@ -188,24 +174,24 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTim
     // TimersCalendar
 
     if extract_property(timer_name, "LoadState")? != "loaded" {
-        return Err(QueryError { kind: QueryErrorKind::NotLoaded });
+        return Err(QueryError::NotLoaded);
     }
 
     let desc = extract_property(timer_name, "Description")?;
     let command = if let Some(splits) = desc.split_once(" ") {
-        CommandConfig::decode(splits.1).map_err(|e| QueryError { kind: QueryErrorKind::DecodeError(e) })?
+        CommandConfig::decode(splits.1)?
     } else {
-        return Err(QueryError { kind: QueryErrorKind::ParseError });
+        return Err(QueryError::ParseError);
     };
 
     let calendar = extract_property(timer_name, "TimersCalendar")?;
     let datetime_str = calendar
-        .split_once("OnCalendar=").ok_or(QueryError { kind: QueryErrorKind::ParseError })?.1
-        .split_once(" ;").ok_or(QueryError { kind: QueryErrorKind::ParseError })?.0;
+        .split_once("OnCalendar=").ok_or(QueryError::ParseError)?.1
+        .split_once(" ;").ok_or(QueryError::ParseError)?.0;
 
     let datetime = match chrono::NaiveDateTime::parse_from_str(&datetime_str,"%Y-%m-%d %H:%M:%S") {
         Ok(x) => x,
-        Err(_) => return Err(QueryError { kind: QueryErrorKind::ParseError }),
+        Err(_) => return Err(QueryError::ParseError),
     };
 
     Ok((command,datetime))
@@ -213,72 +199,31 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTim
 }
 
 /// Error struct for querying task registration
-#[derive(Debug)]
-pub struct QueryError {
-    /// The kind of error that occurred
-    pub kind: QueryErrorKind,
-}
-
-#[derive(Debug)]
-/// Error kinds for [`QueryError`]
-pub enum QueryErrorKind {
+#[derive(Error,Debug)]
+pub enum QueryError {
     /// Error sending command to systemd
-    Command(CommandError),
+    #[error("systemd command error")]
+    Command(#[from] CommandError),
     /// Provided unit name is not loaded
+    #[error("unit with timer name not loaded")]
     NotLoaded,
     /// Error parsing systemd output
+    #[error("error parsing systemd output")]
     ParseError,
     /// Error decoding command
-    DecodeError(CommandConfigError),
-}
-
-impl Display for QueryError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f,"failed to query task registration")
-    }
-}
-
-impl std::error::Error for QueryError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.kind {
-            QueryErrorKind::Command(e) => Some(e),
-            QueryErrorKind::NotLoaded => None,
-            QueryErrorKind::ParseError => None,
-        }
-    }
+    #[error("error decoding command")]
+    DecodeError(#[from] CommandConfigError),
 }
 
 /// Error struct for running a command. Wraps running with a non-success exit status as an error variant.
-#[derive(Debug)]
-pub struct CommandError {
-    /// The command that was run
-    pub command: Command,
-    /// The kind of error that occurred
-    pub kind: CommandErrorKind,
-}
-
-/// Error kinds for [`CommandError`].
-#[derive(Debug)]
-pub enum CommandErrorKind {
+#[derive(Error,Debug)]
+pub enum CommandError {
     /// Error running the command
-    RunCommand(std::io::Error),
+    #[error("error running command")]
+    RunCommand(#[from] std::io::Error),
     /// Command ran, but exited with failure status
+    #[error("command exited with failure status")]
     CommandFailed(Output),
-}
-
-impl Display for CommandError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f,"systemd-run command failed: {:?}", self.command)
-    }
-}
-
-impl std::error::Error for CommandError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.kind {
-            CommandErrorKind::RunCommand(e) => Some(e),
-            CommandErrorKind::CommandFailed(_) => None,
-        }
-    }
 }
 
 /// Helper function for running commands.
@@ -288,17 +233,11 @@ pub fn run_command(mut command: Command) -> Result<Output,CommandError> {
             if output.status.success() {
                 Ok(output)
             } else {
-                Err(CommandError {
-                    command,
-                    kind: CommandErrorKind::CommandFailed(output),
-                })
+                Err(CommandError::CommandFailed(output))
             }
         },
         Err(e) => {
-            Err(CommandError {
-                command,
-                kind: CommandErrorKind::RunCommand(e),
-            })
+            Err(CommandError::RunCommand(e))
         }
     }
 }
