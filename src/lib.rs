@@ -92,11 +92,27 @@ pub enum TimerNameError {
     ContainsWhitespace,
 }
 
+/// Error struct for registration
+#[derive(Error,Debug)]
+#[allow(missing_docs)]
+pub enum RegistrationError {
+    #[error("error querying timer status")]
+    Query(#[from] QueryError),
+    #[error("timer name is already in use")]
+    Duplicate,
+    #[error("error with registration command")]
+    Command(#[from] CommandError),
+}
+
 /// Calls systemd-run to register command to wake at specified time using provided name.
-pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Command) -> Result<(),CommandError> {
+pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Command) -> Result<(),RegistrationError> {
     debug!("registering timer");
 
     let unit_name = format!("--unit={}",timer_name);
+
+    if check_loaded(timer_name)? {
+        return Err(RegistrationError::Duplicate);
+    }
 
     let on_calendar = event_time.format("--on-calendar=%F %T").to_string();
     debug!("timer set for {}",on_calendar);
@@ -165,6 +181,10 @@ fn extract_property(timer_name: TimerName, property: &str) -> Result<String,Quer
     }
 }
 
+fn check_loaded(timer_name: TimerName) -> Result<bool,QueryError> {
+    Ok(extract_property(timer_name,"LoadState")? == "loaded")
+}
+
 /// Returns registered command if it exists
 pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTime),QueryError> {
     debug!("querying registration");
@@ -173,7 +193,7 @@ pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTim
     // Description
     // TimersCalendar
 
-    if extract_property(timer_name, "LoadState")? != "loaded" {
+    if !check_loaded(timer_name)? {
         return Err(QueryError::NotLoaded);
     }
 
