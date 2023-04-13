@@ -6,11 +6,11 @@
 //! programs. Be smart about choosing names.
 //!
 //! Requires the systemd-wake binary to be installed in order to work. Remember to install with
-//! `cargo install systemd-wake`
+//! `cargo install systemd-wake`.
 //!
-//! Use [`register()`] to schedule a command with systemd-run to wake at specificed time
+//! Use [`register()`] to schedule a command with systemd-run to wake at specificed time.
 //!
-//! Use [`deregister()`] to cancel timer
+//! Use [`deregister()`] to cancel timer.
 //!
 //! ### Example
 //! ```
@@ -38,7 +38,7 @@
 
 #![deny(missing_docs)]
 
-/// Command serialization
+/// Command serialization.
 pub mod command;
 use command::{CommandConfig,CommandConfigError};
 
@@ -92,7 +92,7 @@ pub enum UnitNameError {
     ContainsWhitespace,
 }
 
-/// Error struct for registration
+/// Error struct for registration.
 #[derive(Error,Debug)]
 #[allow(missing_docs)]
 pub enum RegistrationError {
@@ -185,7 +185,7 @@ fn check_loaded(unit_name: UnitName) -> Result<bool,QueryError> {
     Ok(extract_property(unit_name,"LoadState")? == "loaded")
 }
 
-/// Returns registered command if it exists
+/// Returns registered command and wake up time for unit if it exists.
 pub fn query_registration(unit_name: UnitName) -> Result<(Command,NaiveDateTime),QueryError> {
     debug!("querying registration");
     // look for:
@@ -218,7 +218,7 @@ pub fn query_registration(unit_name: UnitName) -> Result<(Command,NaiveDateTime)
 
 }
 
-/// Error struct for querying task registration
+/// Error struct for querying task registration.
 #[derive(Error,Debug)]
 pub enum QueryError {
     /// Error sending command to systemd

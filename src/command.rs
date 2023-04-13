@@ -75,7 +75,7 @@ impl CommandConfig {
 }
 
 
-/// Error type for CommandConfig
+/// Error type for CommandConfig.
 #[derive(Error,Debug)]
 #[allow(missing_docs)]
 pub enum CommandConfigError {
