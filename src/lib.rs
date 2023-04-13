@@ -24,16 +24,16 @@
 //! command.args(vec!["-q","-n","synth","0.1","sin","880"]);
 //!
 //! // create unit handle
-//! let timer_name = TimerName::new("my-special-unit-name-123").unwrap();
+//! let unit_name = UnitName::new("my-special-unit-name-123").unwrap();
 //!
 //! // register future beep
-//! systemd_wake::register(waketime,timer_name,command).unwrap();
+//! systemd_wake::register(waketime,unit_name,command).unwrap();
 //!
 //! // check future beep
-//! systemd_wake::query_registration(timer_name).unwrap();
+//! systemd_wake::query_registration(unit_name).unwrap();
 //!
 //! // cancel future beep
-//! systemd_wake::deregister(timer_name).unwrap();
+//! systemd_wake::deregister(unit_name).unwrap();
 //! ```
 
 #![deny(missing_docs)]
@@ -52,43 +52,43 @@ use tracing::{info,debug,warn,error,trace,Level};
 
 /// Wrapper struct for the name given to the systemd timer unit.
 #[derive(Copy,Clone)]
-pub struct TimerName<'a> {
+pub struct UnitName<'a> {
     name: &'a str,
 }
 
-impl<'a> TimerName<'a> {
+impl<'a> UnitName<'a> {
     /// Creates new TimerName and verifies that unit name meets constraints of being only
     /// non-whitespace ASCII.
-    pub fn new(name: &'a str) -> Result<Self,TimerNameError> {
+    pub fn new(name: &'a str) -> Result<Self,UnitNameError> {
         if !name.is_ascii() {
-            return Err(TimerNameError::NotAscii);
+            return Err(UnitNameError::NotAscii);
         }
         if name.contains(char::is_whitespace) {
-            return Err(TimerNameError::ContainsWhitespace);
+            return Err(UnitNameError::ContainsWhitespace);
         }
         Ok(Self { name })
     }
 }
 
-impl AsRef<str> for TimerName<'_> {
+impl AsRef<str> for UnitName<'_> {
     fn as_ref(&self) -> &str {
         self.name
     }
 }
 
-impl Display for TimerName<'_> {
+impl Display for UnitName<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.name.fmt(f)
     }
 }
 
-/// Error struct for creating TimerName.
+/// Error struct for creating [`UnitName`].
 #[derive(Error,Debug)]
 #[allow(missing_docs)]
-pub enum TimerNameError {
-    #[error("TimerName must be ASCII")]
+pub enum UnitNameError {
+    #[error("UnitName must be ASCII")]
     NotAscii,
-    #[error("TimerName cannot conatin whitespace")]
+    #[error("UnitName cannot conatin whitespace")]
     ContainsWhitespace,
 }
 
@@ -98,21 +98,21 @@ pub enum TimerNameError {
 pub enum RegistrationError {
     #[error("error querying timer status")]
     Query(#[from] QueryError),
-    #[error("timer name is already in use")]
+    #[error("unit name is already in use")]
     Duplicate,
     #[error("error with registration command")]
     Command(#[from] CommandError),
 }
 
 /// Calls systemd-run to register command to wake at specified time using provided name.
-pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Command) -> Result<(),RegistrationError> {
+pub fn register(event_time: NaiveDateTime, unit_name: UnitName, command: Command) -> Result<(),RegistrationError> {
     debug!("registering timer");
 
-    let unit_name = format!("--unit={}",timer_name);
-
-    if check_loaded(timer_name)? {
+    if check_loaded(unit_name)? {
         return Err(RegistrationError::Duplicate);
     }
+
+    let unit_name = format!("--unit={}",unit_name);
 
     let on_calendar = event_time.format("--on-calendar=%F %T").to_string();
     debug!("timer set for {}",on_calendar);
@@ -133,11 +133,11 @@ pub fn register(event_time: NaiveDateTime, timer_name: TimerName, command: Comma
 }
 
 /// Calls systemctl to deregister specified timer.
-pub fn deregister(timer_name: TimerName) -> Result<(),CommandError> {
+pub fn deregister(unit_name: UnitName) -> Result<(),CommandError> {
     debug!("deregistering timer");
 
     let unit_name = {
-        let mut name = timer_name.to_string();
+        let mut name = unit_name.to_string();
         name.push_str(".timer");
         name
     };
@@ -153,9 +153,9 @@ pub fn deregister(timer_name: TimerName) -> Result<(),CommandError> {
     Ok(())
 }
 
-fn extract_property(timer_name: TimerName, property: &str) -> Result<String,QueryError> {
+fn extract_property(unit_name: UnitName, property: &str) -> Result<String,QueryError> {
     let unit_name = {
-        let mut name = timer_name.to_string();
+        let mut name = unit_name.to_string();
         name.push_str(".timer");
         name
     };
@@ -181,30 +181,30 @@ fn extract_property(timer_name: TimerName, property: &str) -> Result<String,Quer
     }
 }
 
-fn check_loaded(timer_name: TimerName) -> Result<bool,QueryError> {
-    Ok(extract_property(timer_name,"LoadState")? == "loaded")
+fn check_loaded(unit_name: UnitName) -> Result<bool,QueryError> {
+    Ok(extract_property(unit_name,"LoadState")? == "loaded")
 }
 
 /// Returns registered command if it exists
-pub fn query_registration(timer_name: TimerName) -> Result<(Command,NaiveDateTime),QueryError> {
+pub fn query_registration(unit_name: UnitName) -> Result<(Command,NaiveDateTime),QueryError> {
     debug!("querying registration");
     // look for:
     // LoadState
     // Description
     // TimersCalendar
 
-    if !check_loaded(timer_name)? {
+    if !check_loaded(unit_name)? {
         return Err(QueryError::NotLoaded);
     }
 
-    let desc = extract_property(timer_name, "Description")?;
+    let desc = extract_property(unit_name, "Description")?;
     let command = if let Some(splits) = desc.split_once(" ") {
         CommandConfig::decode(splits.1)?
     } else {
         return Err(QueryError::ParseError);
     };
 
-    let calendar = extract_property(timer_name, "TimersCalendar")?;
+    let calendar = extract_property(unit_name, "TimersCalendar")?;
     let datetime_str = calendar
         .split_once("OnCalendar=").ok_or(QueryError::ParseError)?.1
         .split_once(" ;").ok_or(QueryError::ParseError)?.0;
@@ -225,7 +225,7 @@ pub enum QueryError {
     #[error("systemd command error")]
     Command(#[from] CommandError),
     /// Provided unit name is not loaded
-    #[error("unit with timer name not loaded")]
+    #[error("unit with provided name not loaded")]
     NotLoaded,
     /// Error parsing systemd output
     #[error("error parsing systemd output")]
@@ -276,15 +276,15 @@ mod test {
         command.args(vec!["-q","-n","synth","0.1","sin","880"]);
 
         // create unit handle
-        let timer_name = TimerName::new("my-special-unit-name-123").unwrap();
+        let unit_name = UnitName::new("my-special-unit-name-123").unwrap();
 
         // register future beep
-        register(waketime,timer_name,command).unwrap();
+        register(waketime,unit_name,command).unwrap();
 
         // check future beep
-        let (_command, _datetime) = query_registration(timer_name).unwrap();
+        let (_command, _datetime) = query_registration(unit_name).unwrap();
 
         // cancel future beep
-        deregister(timer_name).unwrap();
+        deregister(unit_name).unwrap();
     }
 }
