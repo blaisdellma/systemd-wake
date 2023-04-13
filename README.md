@@ -50,8 +50,8 @@ systemd_wake::register(waketime,timer_name,command).unwrap();
 systemd_wake::deregister(timer_name).unwrap();
 ```
 ### TODO
- - [ ] query status based on timer name
- - [ ] check for existing unit before scheduling with same name
+ - [x] query status based on timer name
+ - [x] check for existing unit before scheduling with same name
  - [ ] return cancelled command on deregister
  - [ ] allow for rescheduling task without having to cancel and then reconstruct command
  - [ ] allow for the recovery of stdout, stderr, and exit status of scheduled command[^1]
