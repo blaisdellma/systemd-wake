@@ -155,6 +155,12 @@ pub fn deregister(unit_name: UnitName) -> Result<(Command,NaiveDateTime),Registr
     Ok((command,deadline))
 }
 
+/// Convenience function for changing scheduled waketime
+pub fn reschedule(unit_name: UnitName, waketime: NaiveDateTime) -> Result<(),RegistrationError> {
+    let (command, _) = deregister(unit_name)?;
+    register(waketime,unit_name,command)
+}
+
 fn extract_property(unit_name: UnitName, property: &str) -> Result<String,QueryError> {
     let unit_name = {
         let mut name = unit_name.to_string();

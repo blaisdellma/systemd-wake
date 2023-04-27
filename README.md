@@ -53,7 +53,7 @@ systemd_wake::deregister(timer_name).unwrap();
  - [x] query status based on timer name
  - [x] check for existing unit before scheduling with same name
  - [x] return cancelled command and deadline on deregister
- - [ ] allow for rescheduling task without having to cancel and then reconstruct command
+ - [x] allow for rescheduling task without having to cancel and then reconstruct command
  - [ ] allow for the recovery of stdout, stderr, and exit status of scheduled command[^1]
  
  [^1]: I'm not sure what context this would even exist in? Maybe it would just get written out to a file?
