@@ -34,7 +34,7 @@ The systemd-wake binary is required as it is used as an intermediary between the
 use systemd_wake::*;
 
 // one minute in the future
-let waketime = chrono::Local::now() + chrono::Duration::minutes(1);
+let waketime = chrono::Local::now().naive_local() + chrono::Duration::minutes(1);
 
 // schedule a short beep
 let mut command = std::process::Command::new("play");
