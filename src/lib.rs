@@ -32,8 +32,8 @@
 //! // check future beep
 //! systemd_wake::query_registration(unit_name).unwrap();
 //!
-//! // cancel future beep and retrieve command
-//! let command = systemd_wake::deregister(unit_name).unwrap();
+//! // cancel future beep and retrieve command and deadline
+//! let (command, waketime) = systemd_wake::deregister(unit_name).unwrap();
 //! ```
 
 #![deny(missing_docs)]
@@ -133,8 +133,8 @@ pub fn register(event_time: NaiveDateTime, unit_name: UnitName, command: Command
 }
 
 /// Calls systemctl to deregister specified timer.
-pub fn deregister(unit_name: UnitName) -> Result<Command,RegistrationError> {
-    let (command, _) = query_registration(unit_name)?;
+pub fn deregister(unit_name: UnitName) -> Result<(Command,NaiveDateTime),RegistrationError> {
+    let (command, deadline) = query_registration(unit_name)?;
 
     debug!("deregistering timer");
 
@@ -152,7 +152,7 @@ pub fn deregister(unit_name: UnitName) -> Result<Command,RegistrationError> {
 
     debug!("running stop timer command: {:?}",systemd_command);
     run_command(systemd_command)?;
-    Ok(command)
+    Ok((command,deadline))
 }
 
 fn extract_property(unit_name: UnitName, property: &str) -> Result<String,QueryError> {
@@ -287,6 +287,6 @@ mod test {
         let (_command, _datetime) = query_registration(unit_name).unwrap();
 
         // cancel future beep
-        deregister(unit_name).unwrap();
+        let (_command, _datetime) = deregister(unit_name).unwrap();
     }
 }
